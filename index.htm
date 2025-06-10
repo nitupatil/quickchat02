@@ -1,0 +1,358 @@
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Random Chat</title>
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap');
+        
+        :root {
+            --bg-color: #1a1a1a;
+            --card-bg: #2a2a2a;
+            --text-color: #e0e0e0;
+            --primary-color: #007bff; /* Blue for 'You' */
+            --secondary-color: #28a745; /* Green for 'Stranger' */
+            --input-bg: #3a3a3a;
+            --button-bg: #0056b3;
+            --button-hover-bg: #004085;
+            --border-radius: 10px;
+            --shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+            --transition-speed: 0.3s;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            box-sizing: border-box;
+            overflow: hidden; /* Prevent scrollbars from content overflow */
+        }
+
+        .chat-container {
+            background-color: var(--card-bg);
+            border-radius: var(--border-radius);
+            box-shadow: var(--shadow);
+            width: 100%;
+            max-width: 500px;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            transition: transform var(--transition-speed) ease-in-out;
+        }
+
+        .chat-header {
+            background-color: #3a3a3a;
+            padding: 15px;
+            text-align: center;
+            font-weight: 700;
+            border-bottom: 1px solid #444;
+            color: var(--text-color);
+        }
+
+        .chat-messages {
+            flex-grow: 1;
+            padding: 15px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            max-height: 70vh; /* Adjust as needed */
+        }
+
+        .message-bubble {
+            max-width: 80%;
+            padding: 10px 15px;
+            border-radius: var(--border-radius);
+            word-wrap: break-word;
+            line-height: 1.4;
+            transition: background-color var(--transition-speed) ease, transform var(--transition-speed) ease;
+        }
+
+        .message-bubble.you {
+            background-color: var(--primary-color);
+            align-self: flex-end;
+            border-bottom-right-radius: 2px;
+        }
+
+        .message-bubble.stranger {
+            background-color: var(--secondary-color);
+            align-self: flex-start;
+            border-bottom-left-radius: 2px;
+        }
+
+        .chat-input-area {
+            display: flex;
+            padding: 15px;
+            border-top: 1px solid #444;
+            gap: 10px;
+        }
+
+        .chat-input {
+            flex-grow: 1;
+            padding: 10px 15px;
+            border-radius: var(--border-radius);
+            border: none;
+            background-color: var(--input-bg);
+            color: var(--text-color);
+            outline: none;
+            font-size: 1rem;
+            transition: background-color var(--transition-speed) ease;
+        }
+
+        .chat-input:focus {
+            background-color: #4a4a4a;
+        }
+
+        .send-button {
+            padding: 10px 20px;
+            background-color: var(--button-bg);
+            color: white;
+            border: none;
+            border-radius: var(--border-radius);
+            cursor: pointer;
+            font-size: 1rem;
+            transition: background-color var(--transition-speed) ease, transform var(--transition-speed) ease;
+        }
+
+        .send-button:hover {
+            background-color: var(--button-hover-bg);
+            transform: translateY(-2px);
+        }
+
+        .send-button:active {
+            transform: translateY(0);
+        }
+
+        .status-indicator {
+            padding: 10px 15px;
+            text-align: center;
+            font-size: 0.9em;
+            color: #aaa;
+            border-top: 1px solid #444;
+            background-color: #3a3a3a;
+        }
+
+        @media (max-width: 600px) {
+            body {
+                padding: 10px;
+            }
+
+            .chat-container {
+                border-radius: 0;
+                height: 100vh;
+                max-width: 100%;
+            }
+
+            .chat-messages {
+                max-height: calc(100vh - 120px - 60px); /* Header + input area */
+            }
+
+            .chat-input-area {
+                flex-direction: column;
+            }
+
+            .send-button {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="chat-container">
+        <div class="chat-header">
+            🔀 Random Chat
+        </div>
+        <div class="chat-messages" id="chat-messages">
+            </div>
+        <div class="status-indicator" id="status-indicator">Connecting...</div>
+        <div class="chat-input-area">
+            <input type="text" class="chat-input" id="message-input" placeholder="Type your message...">
+            <button class="send-button" id="send-button">Send</button>
+        </div>
+    </div>
+
+    <script>
+        let peer = null;
+        let conn = null;
+        let myId = null;
+        let strangerId = null;
+        let userName = '';
+
+        const chatMessages = document.getElementById('chat-messages');
+        const messageInput = document.getElementById('message-input');
+        const sendButton = document.getElementById('send-button');
+        const statusIndicator = document.getElementById('status-indicator');
+
+        // --- Utility Functions ---
+        function generateTemporaryUsername() {
+            return `User${Math.floor(1000 + Math.random() * 9000)}`;
+        }
+
+        function appendMessage(message, type) {
+            const messageBubble = document.createElement('div');
+            messageBubble.classList.add('message-bubble', type);
+            messageBubble.textContent = message;
+            chatMessages.appendChild(messageBubble);
+            scrollToBottom();
+        }
+
+        function scrollToBottom() {
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        function updateStatus(status) {
+            statusIndicator.textContent = status;
+        }
+
+        // --- PeerJS Logic ---
+        function initializePeer() {
+            userName = generateTemporaryUsername();
+            updateStatus(`Connecting as ${userName}...`);
+            peer = new Peer(userName, {
+                host: '0.peerjs.com',
+                port: 443,
+                secure: true
+            });
+
+            peer.on('open', function(id) {
+                myId = id;
+                console.log('My Peer ID:', myId);
+                updateStatus('Looking for a stranger...');
+                connectToRandomPeer();
+            });
+
+            peer.on('connection', function(newConn) {
+                // This means someone else initiated a connection to us.
+                // We only want one-on-one. If we're already connected, reject.
+                if (conn && conn.open) {
+                    console.log('Already connected to someone, rejecting new connection.');
+                    newConn.close();
+                    return;
+                }
+                
+                conn = newConn;
+                strangerId = conn.peer;
+                console.log('Connected to stranger:', strangerId);
+                updateStatus(`Connected with ${strangerId}`);
+                
+                conn.on('data', function(data) {
+                    appendMessage(data, 'stranger');
+                });
+
+                conn.on('close', function() {
+                    console.log('Stranger disconnected.');
+                    updateStatus('Stranger disconnected. Reload to find a new chat.');
+                    conn = null;
+                    strangerId = null;
+                });
+
+                conn.on('error', function(err) {
+                    console.error('Connection error:', err);
+                    updateStatus('Connection error. Reload to try again.');
+                    conn = null;
+                    strangerId = null;
+                });
+            });
+
+            peer.on('error', function(err) {
+                console.error('Peer error:', err);
+                updateStatus(`Peer error: ${err.message}. Reload to try again.`);
+            });
+
+            peer.on('disconnected', function() {
+                console.log('Peer disconnected from signaling server. Attempting to reconnect...');
+                updateStatus('Disconnected from server. Reconnecting...');
+                // The PeerJS library usually tries to reconnect automatically.
+                // If not, you might call peer.reconnect() here.
+            });
+        }
+
+        async function connectToRandomPeer() {
+            try {
+                const response = await fetch('https://0.peerjs.com/peers'); // PeerJS public signaling server API to list peers
+                const peers = await response.json();
+                
+                const availablePeers = peers.filter(id => id !== myId);
+                
+                if (availablePeers.length > 0) {
+                    // Simple random selection
+                    const randomPeerId = availablePeers[Math.floor(Math.random() * availablePeers.length)];
+                    console.log('Attempting to connect to:', randomPeerId);
+                    
+                    conn = peer.connect(randomPeerId);
+                    strangerId = randomPeerId;
+
+                    conn.on('open', function() {
+                        console.log('Connection established with:', strangerId);
+                        updateStatus(`Connected with ${strangerId}`);
+                    });
+
+                    conn.on('data', function(data) {
+                        appendMessage(data, 'stranger');
+                    });
+
+                    conn.on('close', function() {
+                        console.log('Stranger disconnected.');
+                        updateStatus('Stranger disconnected. Reload to find a new chat.');
+                        conn = null;
+                        strangerId = null;
+                    });
+
+                    conn.on('error', function(err) {
+                        console.error('Connection error with selected peer:', err);
+                        updateStatus('Connection error. Reload to try again.');
+                        conn = null;
+                        strangerId = null;
+                    });
+
+                } else {
+                    updateStatus('No active peers found. Waiting for someone to connect...');
+                    console.log('No other active peers found. Waiting for incoming connections.');
+                }
+            } catch (error) {
+                console.error('Error fetching peers:', error);
+                updateStatus('Error connecting. Reload to try again.');
+            }
+        }
+
+        // --- Event Handlers ---
+        function sendMessage() {
+            const message = messageInput.value.trim();
+            if (message && conn && conn.open) {
+                conn.send(message);
+                appendMessage(message, 'you');
+                messageInput.value = '';
+            } else if (!conn || !conn.open) {
+                updateStatus('Not connected. Please wait or reload.');
+            }
+        }
+
+        sendButton.addEventListener('click', sendMessage);
+        messageInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+
+        // Initialize on load
+        window.addEventListener('load', initializePeer);
+
+        // Optional: Re-initialize Peer if connection is lost (though PeerJS usually handles this)
+        window.addEventListener('beforeunload', function() {
+            if (peer) {
+                peer.destroy();
+            }
+        });
+    </script>
+</body>
+</html>
+```
